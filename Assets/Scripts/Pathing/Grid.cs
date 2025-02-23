@@ -3,63 +3,58 @@ using System.Collections.Generic;
 
 public class Grid : MonoBehaviour
 {
-    [SerializeField]
-    GameObject tilePrefab;
+    [SerializeField] GameObject tilePrefab;
+    [SerializeField] int iterations = 500; // BFS/Dijkstra iteration limit
+    [SerializeField] bool useDijkstra = false;
 
-    [SerializeField]
-    int iterations;
-
-    [SerializeField]
-    bool useDijkstra;
-
+    // Constants for tile types
     const int AIR = 0;
     const int ROCK = 1;
     const int WATER = 2;
     const int GRASS = 3;
     const int TILE_TYPE_COUNT = 4;
 
+    // Grid size
     const int rows = 10;
     const int cols = 20;
-    int[,] tiles =
-    {   //0  1  2  3  4  5  6  7  8  9 10 11 12 13 14 15 16 17 18 19 <-- Columns
-        { 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1 }, // 0
-        { 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 1 }, // 1
-        { 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 1 }, // 2
-        { 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 1 }, // 3
-        { 1, 0, 0, 0, 0, 0, 0, 2, 2, 2, 2, 2, 0, 0, 0, 0, 0, 0, 0, 1 }, // 4
-        { 1, 0, 0, 0, 0, 0, 0, 0, 3, 3, 3, 3, 0, 0, 0, 0, 0, 0, 0, 1 }, // 5
-        { 1, 0, 0, 0, 0, 0, 0, 0, 3, 0, 0, 3, 0, 0, 0, 0, 0, 0, 0, 1 }, // 6
-        { 1, 0, 0, 0, 0, 0, 0, 0, 3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1 }, // 7
-        { 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1 }, // 8
-        { 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1 }  // 9
-    };                                                             // Rows ^
 
-    // Rendering
+    // Layout of the grid
+    int[,] tiles =
+    {
+        { 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1 },
+        { 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 1 },
+        { 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 1 },
+        { 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 1 },
+        { 1, 0, 0, 0, 0, 0, 0, 2, 2, 2, 2, 2, 0, 0, 0, 0, 0, 0, 0, 1 },
+        { 1, 0, 0, 0, 0, 0, 0, 0, 3, 3, 3, 3, 0, 0, 0, 0, 0, 0, 0, 1 },
+        { 1, 0, 0, 0, 0, 0, 0, 0, 3, 0, 0, 3, 0, 0, 0, 0, 0, 0, 0, 1 },
+        { 1, 0, 0, 0, 0, 0, 0, 0, 3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1 },
+        { 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1 },
+        { 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1 }
+    };
+
+    // Rendering references
     List<List<GameObject>> tileObjects = new List<List<GameObject>>();
 
-    // Path following
-    List<Vector3> waypoints = new List<Vector3>();
-    int curr = 0;
-    int next = 1;
-    float t = 0.0f;
+    // Path follower variables
     GameObject pathFollower;
-
-    // Lab 5 Homework:
-    // You'll want to change curr & next to reflect the index of the waypoint your pathFollower is following.
-    // Speaking of waypoints, it might be easier to make a GridToWorld function that does the opposite of WorldToGrid.
-    // This will allow you to input a list of cells (path) and receive a world-space list of waypoints to move along!
+    List<Vector3> pathPoints = new List<Vector3>();
+    int pathCurr = 0;
+    int pathNext = 1;
+    float pathT = 0.0f;
 
     void Start()
     {
+        // Instantiate the grid visually
         float y = 9.5f;
-        for (int row = 0; row < rows; row++)
+        for (int r = 0; r < rows; r++)
         {
             List<GameObject> rowObjects = new List<GameObject>();
             float x = 0.5f;
-            for (int col = 0; col < cols; col++)
+            for (int c = 0; c < cols; c++)
             {
                 GameObject tile = Instantiate(tilePrefab);
-                tile.transform.position = new Vector3(x, y);
+                tile.transform.position = new Vector3(x, y, 0f);
                 rowObjects.Add(tile);
                 x += 1.0f;
             }
@@ -67,73 +62,87 @@ public class Grid : MonoBehaviour
             y -= 1.0f;
         }
 
-
-        waypoints.Add((new Vector3(5.5f, 5.5f)));
-        waypoints.Add((new Vector3(6.5f, 5.5f)));
-        waypoints.Add((new Vector3(6.5f, 6.5f)));
-        waypoints.Add((new Vector3(7.5f, 6.5f)));
-        pathFollower = GameObject.Instantiate(tilePrefab);
-        pathFollower.transform.position = waypoints[curr];
+        // Create a path follower tile
+        pathFollower = Instantiate(tilePrefab);
         pathFollower.GetComponent<SpriteRenderer>().color = Color.red;
-
-        // Dequeues based on lowest priority -- logs c, b, a
-        //PriorityQueue<int, float> pq = new PriorityQueue<int, float>();
-        //int a = 4;
-        //int b = 8;
-        //int c = 12;
-        //pq.Enqueue(a, 3.0f);
-        //pq.Enqueue(b, 2.0f);
-        //pq.Enqueue(c, 1.0f);
-        //while (pq.Count > 0)
-        //{
-        //    int n = pq.Dequeue();
-        //    Debug.Log(n);
-        //}
     }
 
     void Update()
     {
-        //DrawGradient();
+        // Redraw the grid in its default colors each frame
         DrawTiles();
-        
+
+        // Define a start and end cell for BFS or Dijkstra
         Cell start = new Cell { row = 7, col = 3 };
         Cell end = new Cell { row = 2, col = 16 };
 
-        // Switch between flood-fill vs dijkstra's to see an unoptimal vs optimal path
+        // Use BFS or Dijkstra
         List<Cell> path = useDijkstra
             ? Pathing.Dijkstra(start, end, tiles, iterations, this)
             : Pathing.FloodFill(start, end, tiles, iterations, this);
 
+        // Draw the path in cyan
         foreach (Cell cell in path)
             DrawCell(cell, Color.cyan);
+
+        // Draw start in green and end in red
         DrawCell(start, Color.green);
         DrawCell(end, Color.red);
 
-        List<Cell> testPath = new List<Cell>();
-        foreach (Vector3 pos in waypoints)
+        // Convert the BFS path from Cells to world positions
+        pathPoints.Clear();
+        foreach (Cell c in path)
         {
-            testPath.Add(WorldToGrid(pos));
+            pathPoints.Add(GridToWorld(c));
         }
 
-        foreach (Cell cell in testPath)
-            DrawCell(cell, Color.yellow);
+        // Move the path follower along the BFS path
+        if (pathPoints.Count >= 2)
+        {
+            pathT += Time.deltaTime;
+            if (pathT >= 1.0f)
+            {
+                pathT = 0.0f;
+                pathCurr = pathNext;
+                pathNext++;
 
-        // TODO - increment & bound curr & next indices when time expires
-        t += Time.deltaTime;
-        if (t > 1.0f)
-            t = 0.0f;
+                // If we've reached or exceeded the last point, clamp or loop
+                if (pathNext >= pathPoints.Count)
+                {
+                    // Option 1: Clamp at the end
+                    pathNext = pathPoints.Count - 1;
 
-        // Lab 5 TODO: follow a path generated by Dijkstra instead of my test path
-        pathFollower.transform.position = Vector3.Lerp(waypoints[curr], waypoints[next], t);
+                    // Option 2: Loop back to the start
+                    // pathNext = 0;
+                    // pathCurr = 0;
+                }
+            }
+
+            // Lerp between pathCurr and pathNext
+            pathFollower.transform.position = Vector3.Lerp(
+                pathPoints[pathCurr],
+                pathPoints[pathNext],
+                pathT
+            );
+        }
+
+        // Highlight the tile under the mouse (magenta)
         DrawMouseTiles();
     }
 
+    /// <summary>
+    /// Colors a single cell in the grid.
+    /// </summary>
     public void DrawCell(Cell cell, Color color)
     {
         GameObject obj = tileObjects[cell.row][cell.col];
-        obj.gameObject.GetComponent<SpriteRenderer>().color = color;
+        obj.GetComponent<SpriteRenderer>().color = color;
     }
 
+    /// <summary>
+    /// Returns the cost of moving onto a tile of the given type.
+    /// Used by Dijkstra.
+    /// </summary>
     public float TileCost(int type)
     {
         float[] costs = new float[TILE_TYPE_COUNT];
@@ -144,6 +153,9 @@ public class Grid : MonoBehaviour
         return costs[type];
     }
 
+    /// <summary>
+    /// Returns a color for each tile type.
+    /// </summary>
     public Color TileColor(int type)
     {
         Color[] colors = new Color[TILE_TYPE_COUNT];
@@ -154,66 +166,81 @@ public class Grid : MonoBehaviour
         return colors[type];
     }
 
+    /// <summary>
+    /// Returns the tile type for a given cell.
+    /// </summary>
     public int TileType(Cell cell)
     {
         return tiles[cell.row, cell.col];
     }
 
+    /// <summary>
+    /// If we want to debug-draw BFS expansions, return true.
+    /// </summary>
     public bool IsDebugDraw()
     {
         return true;
     }
 
-    void DrawGradient()
-    {
-        for (int row = 0; row < rows; row++)
-        {
-            for (int col = 0; col < cols; col++)
-            {
-                GameObject go = tileObjects[row][col];
-                Vector2 pos = go.transform.position;
-                float u = pos.x / (float)cols;
-                float v = pos.y / (float)rows;
-                Color color = new Color(u, v, 0.0f);
-                go.GetComponent<SpriteRenderer>().color = color;
-            }
-        }
-    }
-
-    void DrawMouseTiles()
-    {
-        Vector2 mouse = Camera.main.ScreenToWorldPoint(Input.mousePosition);
-        Cell mouseCell = WorldToGrid(mouse);
-        //Debug.Log("Row: " + mouseCell.row + " Col: " + mouseCell.col);
-        if (!Cell.Equals(mouseCell, Cell.Invalid()))
-        {
-            DrawCell(mouseCell, Color.magenta);
-            //foreach (Cell adj in Pathing.Adjacent(mouseCell, rows, cols))
-            //    DrawCell(adj, Color.blue);
-        }
-    }
-
+    /// <summary>
+    /// Colors the entire grid in its default tile colors.
+    /// </summary>
     void DrawTiles()
     {
-        for (int row = 0; row < rows; row++)
+        for (int r = 0; r < rows; r++)
         {
-            for (int col = 0; col < cols; col++)
+            for (int c = 0; c < cols; c++)
             {
-                int type = tiles[row, col];
-                Cell cell = new Cell { row = row, col = col };
+                Cell cell = new Cell { row = r, col = c };
+                int type = tiles[r, c];
                 DrawCell(cell, TileColor(type));
             }
         }
     }
 
+    /// <summary>
+    /// Colors the tile under the mouse in magenta (for debug).
+    /// </summary>
+    void DrawMouseTiles()
+    {
+        if (Camera.main == null)
+        {
+            Debug.LogWarning("Main Camera is missing or not tagged as 'MainCamera'!");
+            return;
+        }
+
+        Vector2 mousePos = Camera.main.ScreenToWorldPoint(Input.mousePosition);
+        Cell mouseCell = WorldToGrid(mousePos);
+
+        if (!Cell.Equals(mouseCell, Cell.Invalid()))
+        {
+            DrawCell(mouseCell, Color.magenta);
+        }
+    }
+
+    /// <summary>
+    /// Converts world-space coordinates to a grid cell.
+    /// row 0 is the top row in your code, so we do (rows - 1 - (int)pos.y).
+    /// </summary>
     Cell WorldToGrid(Vector3 pos)
     {
-        if (pos.x < 0.0f || pos.x > cols || pos.y < 0.0f || pos.y > rows)
+        if (pos.x < 0f || pos.x > cols || pos.y < 0f || pos.y > rows)
             return Cell.Invalid();
 
         Cell cell = new Cell();
         cell.col = (int)pos.x;
         cell.row = (rows - 1) - (int)pos.y;
         return cell;
+    }
+
+    /// <summary>
+    /// Converts a grid cell back to world-space coordinates
+    /// so we can position a tile or follower at (x+0.5, y+0.5).
+    /// </summary>
+    Vector3 GridToWorld(Cell cell)
+    {
+        float x = cell.col + 0.5f;
+        float y = (rows - 1 - cell.row) + 0.5f;
+        return new Vector3(x, y, 0f);
     }
 }

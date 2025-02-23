@@ -1,6 +1,6 @@
 using System.Collections.Generic;
 using UnityEngine;
-using Utils;
+using Utils; // If you have a PriorityQueue in a Utils namespace
 
 public struct Cell
 {
@@ -20,63 +20,67 @@ public struct Cell
 
 public struct Node
 {
-    public Cell curr; // Current cell
-    public Cell prev; // Parent (cell before current)
-    public float cost;// How expensive it is to move to this node
+    public Cell curr;   // Current cell
+    public Cell prev;   // Parent cell (where we came from)
+    public float cost;  // Used in Dijkstra
 }
 
 public static class Pathing
 {
+    /// <summary>
+    /// FloodFill (BFS) pathfinding. Iteration-limited for debug visualization.
+    /// </summary>
     public static List<Cell> FloodFill(Cell start, Cell end, int[,] tiles, int iterations, Grid grid)
     {
         int rows = tiles.GetLength(0);
         int cols = tiles.GetLength(1);
-        bool[,] closed = new bool[rows, cols];  // <-- Cells we've already explored (can't explore again otherwise infinite loop)
-        Node[,] nodes = new Node[rows, cols];   // <-- Connections between cells (each cell and what came before each cell)
-        for (int row = 0; row < rows; row++)
+
+        // Mark blocked cells (e.g. tile==1 is ROCK)
+        bool[,] closed = new bool[rows, cols];
+        Node[,] nodes = new Node[rows, cols];
+
+        for (int r = 0; r < rows; r++)
         {
-            for (int col = 0; col < cols; col++)
+            for (int c = 0; c < cols; c++)
             {
-                closed[row, col] = tiles[row, col] == 1;
-                nodes[row, col].curr = new Cell { row = row, col = col };
-                nodes[row, col].prev = Cell.Invalid();
+                // If tile is 1 => ROCK => block it
+                closed[r, c] = (tiles[r, c] == 1);
+                nodes[r, c].curr = new Cell { row = r, col = c };
+                nodes[r, c].prev = Cell.Invalid();
             }
         }
 
-        // List of cells we've discovered and want to explore -- *first in, first out*
         Queue<Cell> open = new Queue<Cell>();
         open.Enqueue(start);
-        bool found = false;
 
+        bool found = false;
         List<Cell> debugCells = new List<Cell>();
 
-        // Search until there's nothing left to explore
-        //while (open.Count > 0)
-
-        // Easier to visualize if we drag our iterations slider to see flood-fill step by step
+        // Limit expansions to 'iterations' for step-by-step visualization
         for (int i = 0; i < iterations; i++)
         {
-            // Examing the front of the queue ("first in line")
+            if (open.Count == 0)
+                break;
+
             Cell front = open.Dequeue();
 
-            // Add to current cell to debug render (and prevent duplicates by ensuring its unexplored)
-            if (grid.IsDebugDraw() && closed[front.row, front.col] == false)
+            // For debug: track which cells we've explored
+            if (grid.IsDebugDraw() && !closed[front.row, front.col])
                 debugCells.Add(front);
 
-            // Prevent the explored cell from being revisited (prevents infinite loop)
+            // Mark this cell as visited
             closed[front.row, front.col] = true;
 
-            // Stop searching if we've reached our goal
+            // If we've reached the goal, stop
             if (Cell.Equals(front, end))
             {
                 found = true;
                 break;
             }
 
-            // Otherwise, continue our search by enqueuing adjacent tiles!
+            // Enqueue neighbors
             foreach (Cell adj in Adjacent(front, rows, cols))
             {
-                // Ensure we haven't already searched this cell
                 if (!closed[adj.row, adj.col])
                 {
                     open.Enqueue(adj);
@@ -87,27 +91,34 @@ public static class Pathing
 
         if (!found)
         {
+            // Color all visited cells magenta if we didn't reach the end
             foreach (Cell cell in debugCells)
                 grid.DrawCell(cell, Color.magenta);
+            return new List<Cell>();
         }
 
-        // If we've found the end, retrace our steps. Otherwise, there's no solution so return an empty list.
-        List<Cell> result = found ? Retrace(nodes, start, end) : new List<Cell>();
-        return result;
+        // Retrace path from end to start
+        return Retrace(nodes, start, end);
     }
 
-    public static List<Cell>Dijkstra(Cell start, Cell end, int[,] tiles, int iterations, Grid grid)
+    /// <summary>
+    /// Dijkstra's Algorithm using a priority queue (for weighted costs).
+    /// </summary>
+    public static List<Cell> Dijkstra(Cell start, Cell end, int[,] tiles, int iterations, Grid grid)
     {
         int rows = tiles.GetLength(0);
         int cols = tiles.GetLength(1);
-        Node[,] nodes = new Node[rows, cols];   // <-- Connections between cells (each cell and what came before each cell)
-        for (int row = 0; row < rows; row++)
+
+        Node[,] nodes = new Node[rows, cols];
+
+        // Initialize each cell's cost to max, except the start
+        for (int r = 0; r < rows; r++)
         {
-            for (int col = 0; col < cols; col++)
+            for (int c = 0; c < cols; c++)
             {
-                nodes[row, col].curr = new Cell { row = row, col = col };
-                nodes[row, col].prev = Cell.Invalid();
-                nodes[row, col].cost = float.MaxValue;
+                nodes[r, c].curr = new Cell { row = r, col = c };
+                nodes[r, c].prev = Cell.Invalid();
+                nodes[r, c].cost = float.MaxValue;
             }
         }
 
@@ -117,12 +128,14 @@ public static class Pathing
 
         bool found = false;
         HashSet<Cell> debugCells = new HashSet<Cell>();
+
+        // Similar iteration limit for debug visualization
         for (int i = 0; i < iterations; i++)
         {
-            // Examine the cell with the highest priority (lowest cost)
-            Cell front = open.Dequeue();
+            if (open.Count == 0)
+                break;
 
-            // Stop searching if we've reached our goal
+            Cell front = open.Dequeue();
             if (Cell.Equals(front, end))
             {
                 found = true;
@@ -132,68 +145,67 @@ public static class Pathing
             if (grid.IsDebugDraw())
                 debugCells.Add(front);
 
-            // Update cell cost and add it to open list if the new cost is cheaper than the old cost
+            // Explore neighbors
             foreach (Cell adj in Adjacent(front, rows, cols))
             {
-                float prevCost = nodes[adj.row, adj.col].cost;
-                float currCost = nodes[front.row, front.col].cost + grid.TileCost(grid.TileType(adj));
-                if (currCost < prevCost)
+                // Current path cost + tile cost
+                float newCost = nodes[front.row, front.col].cost + grid.TileCost(grid.TileType(adj));
+                float oldCost = nodes[adj.row, adj.col].cost;
+
+                if (newCost < oldCost)
                 {
-                    open.Enqueue(adj, currCost);
-                    nodes[adj.row, adj.col].cost = currCost;
+                    nodes[adj.row, adj.col].cost = newCost;
                     nodes[adj.row, adj.col].prev = front;
+                    open.Enqueue(adj, newCost);
                 }
             }
         }
 
         if (!found)
         {
+            // Color visited cells magenta if no path to end
             foreach (Cell cell in debugCells)
                 grid.DrawCell(cell, Color.magenta);
+            return new List<Cell>();
         }
 
-        // If we've found the end, retrace our steps. Otherwise, there's no solution so return an empty list.
-        List<Cell> result = found ? Retrace(nodes, start, end) : new List<Cell>();
-        return result;
+        return Retrace(nodes, start, end);
     }
 
-    // Looks like task 2 has also been done for you... Enjoy a free lab I guess
+    /// <summary>
+    /// Retrace path from end to start using stored parent pointers.
+    /// </summary>
     static List<Cell> Retrace(Node[,] nodes, Cell start, Cell end)
     {
         List<Cell> path = new List<Cell>();
-
-        // Start at the end, and work backwards until we reach the start!
         Cell curr = end;
 
-        // Prev is the cell that came before the current cell
-        Cell prev = nodes[curr.row, curr.col].prev;
-
-        // Search until nothing came before the previous cell, meaning we've reached start!
-        // (Note that this will halt your program if you run this without any code inside the loop)
-        //while (!Cell.Equals(prev, Cell.Invalid()))
-        for (int i = 0; i < 32; i++)
+        // Work backwards from end to start
+        while (!Cell.Equals(curr, start))
         {
-            // 1. Add curr to path
             path.Add(curr);
-
-            // 2. Set curr equal to prev
-            curr = prev;
-
-            // 3. Set prev equal to the cell that came before curr (query the node grid just like when we defined prev)
-            prev = nodes[curr.row, curr.col].prev;
-
-            // If the previous cell is invalid, meaning there's no previous cell, then we've reached the start!
+            Cell prev = nodes[curr.row, curr.col].prev;
             if (Cell.Equals(prev, Cell.Invalid()))
+            {
+                // Means there's no valid path
                 break;
+            }
+            curr = prev;
         }
 
+        // Add the start at the end
+        path.Add(start);
+        path.Reverse();
         return path;
     }
 
-    // Task 1 has been done for you. Enjoy a free 3%!
+    /// <summary>
+    /// Returns the four cardinal neighbors of a cell if they're in bounds.
+    /// </summary>
     public static List<Cell> Adjacent(Cell cell, int rows, int cols)
     {
         List<Cell> cells = new List<Cell>();
+
         Cell left = new Cell { row = cell.row, col = cell.col - 1 };
         Cell right = new Cell { row = cell.row, col = cell.col + 1 };
         Cell up = new Cell { row = cell.row - 1, col = cell.col };
@@ -203,6 +215,7 @@ public static class Pathing
         if (right.col < cols) cells.Add(right);
         if (up.row >= 0) cells.Add(up);
         if (down.row < rows) cells.Add(down);
+
         return cells;
     }
 }
